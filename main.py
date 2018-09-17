@@ -82,8 +82,6 @@ def draw(stdscr):
 
                     items = getItemsFromDatabase(libraryPath)
                     readItems = reduce((lambda a, b: a + b), list(map(lambda x: x[2], items)))
-
-                    # TODO/FUTURE CHECK IF FILE WITH SAME NAME IN DB AND ON DISK STILL EXISTS ON SAME PATH AS IN DB (IF NO THEN ASK IF REPLACE PATH IN DB)
             elif characterPressed == ord('c'):
                 changeLibraryPathMode = True
             elif characterPressed == ord(' '):
@@ -91,6 +89,33 @@ def draw(stdscr):
                     items[position] = (items[position][0], items[position][1], int(not items[position][2]))
                     updateDocument(libraryPath, items[position])
                     readItems = reduce((lambda a, b: a + b), list(map(lambda x: x[2], items)))
+            elif characterPressed == ord('l'):
+                if os.path.isdir(libraryPath):
+                    stdscr.addstr(1, 1, libraryPathHeader + "  Cleaning...")
+                    stdscr.refresh()
+
+                    if libraryPath[len(libraryPath) - 1] != "/":
+                        libraryPath = libraryPath + "/"
+
+                    if checkIfDatabaseExists(libraryPath):
+                        databaseItems = getItemsFromDatabase(libraryPath)
+                        deleteStatements = []
+
+                        for databaseItem in databaseItems:
+                            found = False
+
+                            for filePath in listFiles(libraryPath):
+                                if databaseItem[1] == filePath:
+                                    found = True
+                                    break
+
+                            if not found:
+                                deleteStatements += [["DELETE FROM documents WHERE id=?", databaseItem[0]]]
+
+                        deleteData(libraryPath, deleteStatements)
+
+                        items = getItemsFromDatabase(libraryPath)
+                        readItems = reduce((lambda a, b: a + b), list(map(lambda x: x[2], items)))
 
         stdscr.clear()
         height, width = stdscr.getmaxyx()
@@ -122,7 +147,7 @@ def draw(stdscr):
             drawItems(stdscr, items[startListPosition:(endListPosition + 1)], items[position], startListPosition)
 
         # Status bar
-        statusbarstr = " e(x)it | (r)eload | (c)hange library path / (ESC) return | (SPC) mark read/unread | Read items: {}/{}".format(readItems, len(items))
+        statusbarstr = " e(x)it | (c)hange library path / (ESC) return | (r)eload | c(l)ean not existing entries | (SPC) mark read/unread | Read items: {}/{}".format(readItems, len(items))
         stdscr.attron(curses.color_pair(1))
         stdscr.addstr(height - 1, 0, statusbarstr)
         stdscr.addstr(height - 1, len(statusbarstr), " " * (width - len(statusbarstr) - 1))
@@ -206,6 +231,22 @@ def insertData(directory, insertStatements):
 
     return result
 
+def deleteData(directory, deleteStatements):
+    result = False
+
+    try:
+        connection = sqlite3.connect(directory + "database.db")
+        for statement in deleteStatements:
+            connection.cursor().execute(statement[0], [statement[1]])
+        connection.commit()
+        result = True
+    except Exception:
+        pass
+    finally:
+        connection.close()
+
+    return result
+
 def drawItems(screen, items, selectedItem, startPosition):
     index = 0
     for item in items:
@@ -233,3 +274,8 @@ def updateDocument(directory, document):
 
 if __name__ == "__main__":
     main()
+
+#TODO REFACTOR CODE
+#TODO ASK FOR MOVED FILES
+#TODO HANDLE BETTER SCREEN SIZES
+#TODO REFACTOR INSERTING AND DELETING DATA CODE
