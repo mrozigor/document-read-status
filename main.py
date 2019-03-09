@@ -52,6 +52,25 @@ def draw(stdscr):
                 if position > endListPosition:
                     startListPosition = position
                     endListPosition = position
+            elif (characterPressed == curses.KEY_RIGHT) and (len(items) != 0):
+                delta = endListPosition - startListPosition
+                if (endListPosition + delta) > len(items):
+                    endListPosition = len(items) - 1
+                    startListPosition = endListPosition - delta
+                    position = endListPosition
+                else:
+                    startListPosition = startListPosition + delta
+                    endListPosition = endListPosition + delta
+                    position = startListPosition
+            elif (characterPressed == curses.KEY_LEFT) and (len(items) != 0):
+                delta = endListPosition - startListPosition
+                if (startListPosition - delta) < 0:
+                    startListPosition = 0
+                    endListPosition = startListPosition + delta
+                else:
+                    startListPosition = startListPosition - delta
+                    endListPosition = endListPosition - delta
+                position = startListPosition
             elif characterPressed == ord('x'):
                 break
             elif characterPressed == ord('r'):
@@ -279,3 +298,4 @@ if __name__ == "__main__":
 #TODO ASK FOR MOVED FILES
 #TODO HANDLE BETTER SCREEN SIZES
 #TODO REFACTOR INSERTING AND DELETING DATA CODE
+#TODO ADD POSSIBILITY FOR USER TO CHANGE FILES EXTENSION FILTER
