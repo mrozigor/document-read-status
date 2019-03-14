@@ -77,6 +77,7 @@ def draw(stdscr):
                 if os.path.isdir(libraryPath):
                     stdscr.addstr(1, 1, libraryPathHeader + "  Reloading...")
                     stdscr.refresh()
+                    
                     if libraryPath[len(libraryPath) - 1] != "/":
                         libraryPath = libraryPath + "/"
 
@@ -84,20 +85,29 @@ def draw(stdscr):
                         createDatabase(libraryPath)
 
                     databaseItems = getItemsFromDatabase(libraryPath)
+                    filePaths = listFiles(libraryPath)
+                    items = {} # {"filePath": [False, False]} - first one if it exists in filePaths, second if in database
                     insertStatements = []
+                    deleteStatements = []
 
-                    for filePath in listFiles(libraryPath):
-                        found = False
+                    for filePath in filePaths:
+                        items[filePath] = [True, False]
 
-                        for databaseItem in databaseItems:
-                            if databaseItem[1] == filePath:
-                                found = True
-                                break
+                    for databaseItem in databaseItems:
+                        data = items.get(databaseItem[1], [False, True])
+                        data[1] = True
+                        items[databaseItem[1]] = data
 
-                        if not found:
+                    for filePath, info in items.items():
+                        if info[0] and not info[1]:
                             insertStatements += [["INSERT INTO documents (relative_path, is_read) VALUES (?, 0)", filePath]]
 
+                        if not info[0] and info[1]:
+                            deleteStatements += [["DELETE FROM documents WHERE relative_path=?", filePath]]
+                            
+                    
                     insertData(libraryPath, insertStatements)
+                    deleteData(libraryPath, deleteStatements)
 
                     items = getItemsFromDatabase(libraryPath)
                     readItems = reduce((lambda a, b: a + b), list(map(lambda x: x[2], items)))
@@ -108,33 +118,6 @@ def draw(stdscr):
                     items[position] = (items[position][0], items[position][1], int(not items[position][2]))
                     updateDocument(libraryPath, items[position])
                     readItems = reduce((lambda a, b: a + b), list(map(lambda x: x[2], items)))
-            elif characterPressed == ord('l'):
-                if os.path.isdir(libraryPath):
-                    stdscr.addstr(1, 1, libraryPathHeader + "  Cleaning...")
-                    stdscr.refresh()
-
-                    if libraryPath[len(libraryPath) - 1] != "/":
-                        libraryPath = libraryPath + "/"
-
-                    if checkIfDatabaseExists(libraryPath):
-                        databaseItems = getItemsFromDatabase(libraryPath)
-                        deleteStatements = []
-
-                        for databaseItem in databaseItems:
-                            found = False
-
-                            for filePath in listFiles(libraryPath):
-                                if databaseItem[1] == filePath:
-                                    found = True
-                                    break
-
-                            if not found:
-                                deleteStatements += [["DELETE FROM documents WHERE id=?", databaseItem[0]]]
-
-                        deleteData(libraryPath, deleteStatements)
-
-                        items = getItemsFromDatabase(libraryPath)
-                        readItems = reduce((lambda a, b: a + b), list(map(lambda x: x[2], items)))
 
         stdscr.clear()
         height, width = stdscr.getmaxyx()
@@ -166,7 +149,7 @@ def draw(stdscr):
             drawItems(stdscr, items[startListPosition:(endListPosition + 1)], items[position], startListPosition)
 
         # Status bar
-        statusbarstr = " e(x)it | (c)hange library path / (ESC) return | (r)eload | c(l)ean not existing entries | (SPC) mark read/unread | Read items: {}/{}".format(readItems, len(items))
+        statusbarstr = " e(x)it | (c)hange library path / (ESC) return | (r)eload | (SPC) mark read/unread | Read items: {}/{}".format(readItems, len(items))
         stdscr.attron(curses.color_pair(1))
         stdscr.addstr(height - 1, 0, statusbarstr)
         stdscr.addstr(height - 1, len(statusbarstr), " " * (width - len(statusbarstr) - 1))
@@ -297,5 +280,4 @@ if __name__ == "__main__":
 #TODO REFACTOR CODE
 #TODO ASK FOR MOVED FILES
 #TODO HANDLE BETTER SCREEN SIZES
-#TODO REFACTOR INSERTING AND DELETING DATA CODE
 #TODO ADD POSSIBILITY FOR USER TO CHANGE FILES EXTENSION FILTER
