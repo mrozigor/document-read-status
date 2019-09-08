@@ -5,6 +5,7 @@ import curses
 import os
 import os.path
 import sqlite3
+import hashlib
 from functools import reduce
 
 def draw(stdscr):
@@ -86,6 +87,7 @@ def draw(stdscr):
 
                     databaseItems = getItemsFromDatabase(libraryPath)
                     filePaths = listFiles(libraryPath)
+                    fileHashes = calculateHashes(libraryPath, filePaths)
                     items = {} # {"filePath": [False, False]} - first one if it exists in filePaths, second if in database
                     insertStatements = []
                     deleteStatements = []
@@ -100,7 +102,7 @@ def draw(stdscr):
 
                     for filePath, info in items.items():
                         if info[0] and not info[1]:
-                            insertStatements += [["INSERT INTO documents (relative_path, is_read) VALUES (?, 0)", filePath]]
+                            insertStatements += [["INSERT INTO documents (relative_path, content_hash, is_read) VALUES (?, ?, 0)", filePath, fileHashes[filePath]]]
 
                         if not info[0] and info[1]:
                             deleteStatements += [["DELETE FROM documents WHERE relative_path=?", filePath]]
@@ -110,14 +112,14 @@ def draw(stdscr):
                     deleteData(libraryPath, deleteStatements)
 
                     items = getItemsFromDatabase(libraryPath)
-                    readItems = reduce((lambda a, b: a + b), list(map(lambda x: x[2], items)))
+                    readItems = reduce((lambda a, b: a + b), list(map(lambda x: x[3], items)))
             elif characterPressed == ord('c'):
                 changeLibraryPathMode = True
             elif characterPressed == ord(' '):
                 if len(items) > 0:
-                    items[position] = (items[position][0], items[position][1], int(not items[position][2]))
+                    items[position] = (items[position][0], items[position][1], items[position][2], int(not items[position][3]))
                     updateDocument(libraryPath, items[position])
-                    readItems = reduce((lambda a, b: a + b), list(map(lambda x: x[2], items)))
+                    readItems = reduce((lambda a, b: a + b), list(map(lambda x: x[3], items)))
 
         stdscr.clear()
         height, width = stdscr.getmaxyx()
@@ -165,7 +167,7 @@ def main():
 
 def listFiles(directory):
     filesList = []
-    includedExtensions = [".pdf", ".doc", ".docx", ".odt", ".mobi", ".epub"]
+    includedExtensions = [".pdf", ".doc", ".docx", ".odt", ".mobi", ".epub", ".djvu", ".jpg", ".jpeg", ".png"]
 
     if os.path.isdir(directory):
         for path, subdirs, files in os.walk(directory):
@@ -175,22 +177,38 @@ def listFiles(directory):
                 if name == "database.db":
                     continue
 
-                for extension in includedExtensions:
-                    if name.lower().endswith(extension):
-                        add = True
-                        break
+                #for extension in includedExtensions:
+                #    if name.lower().endswith(extension):
+                #        add = True
+                #        break
+                add = True
 
                 if add:
                     filesList += [os.path.join(path, name).replace(directory, "")]
 
     return filesList
 
+def calculateHashes(directory, fileList):
+    BUFFER_SIZE = 10 * 2**20
+    hashes = dict()
+    for filePath in fileList:
+        with open(directory + filePath, 'rb') as file:
+            hash = hashlib.sha1()
+            while True:
+                data = file.read(BUFFER_SIZE) #10MB
+                if not data:
+                    break
+                hash.update(data)
+            hashes[filePath] = hash.hexdigest()
+
+    return hashes
+
 def createDatabase(directory):
     result = False
 
     try:
         connection = sqlite3.connect(directory + "database.db")
-        connection.cursor().execute("CREATE TABLE IF NOT EXISTS documents (id INTEGER PRIMARY KEY, relative_path text NOT NULL UNIQUE, is_read INTEGER NOT NULL)")
+        connection.cursor().execute("CREATE TABLE IF NOT EXISTS documents (id INTEGER PRIMARY KEY, relative_path text NOT NULL UNIQUE, content_hash text NOT NULL, is_read INTEGER NOT NULL)")
         result = True
     except Exception:
         pass
@@ -223,7 +241,7 @@ def insertData(directory, insertStatements):
     try:
         connection = sqlite3.connect(directory + "database.db")
         for statement in insertStatements:
-            connection.cursor().execute(statement[0], [statement[1]])
+            connection.cursor().execute(statement[0], [statement[1], statement[2]])
         connection.commit()
         result = True
     except Exception:
@@ -254,7 +272,7 @@ def drawItems(screen, items, selectedItem, startPosition):
     for item in items:
         if item == selectedItem:
             screen.attron(curses.color_pair(1))
-        screen.addstr(index + 4, 0, "{:^8}|{:^10}| {}".format(startPosition + index, ("*" if item[2] == 1 else ""), item[1]))
+        screen.addstr(index + 4, 0, "{:^8}|{:^10}| {}".format(startPosition + index, ("*" if item[3] == 1 else ""), item[1]))
         if item == selectedItem:
             screen.attroff(curses.color_pair(1))
         index = index + 1
@@ -264,7 +282,7 @@ def updateDocument(directory, document):
 
     try:
         connection = sqlite3.connect(directory + "database.db")
-        connection.cursor().execute("UPDATE documents SET is_read = ? WHERE id = ?", [document[2], document[0]])
+        connection.cursor().execute("UPDATE documents SET is_read = ? WHERE id = ?", [document[3], document[0]])
         connection.commit()
         result = True
     except Exception:
@@ -281,3 +299,6 @@ if __name__ == "__main__":
 #TODO ASK FOR MOVED FILES
 #TODO HANDLE BETTER SCREEN SIZES
 #TODO ADD POSSIBILITY FOR USER TO CHANGE FILES EXTENSION FILTER
+#TODO ADD HASH OF FILE BASED ON CONTENT TO CHANGE ONLY FILE NAME IN CASE
+#TODO ADD INFO WINDOW ABOUT ADDED/MOVED/REMOVED FILES
+#TODO ADD HANDLER FOR SITUATION WHERE THERE IS NO ITEMS IN DIRECTORY
