@@ -1,9 +1,8 @@
 #!/bin/env python3
 
 import sys
-import curses
-import os
-import os.path
+import curses, curses.panel, curses.ascii
+import os, os.path
 import sqlite3
 import hashlib
 from functools import reduce
@@ -16,6 +15,7 @@ def draw(stdscr):
     endListPosition = 0
     readItems = 0
     libraryPath = ""
+    libraryPathTemp = ""
     changeLibraryPathMode = False
 
     # Clear and refresh the screen for a blank canvas
@@ -26,16 +26,29 @@ def draw(stdscr):
     # Start colors in curses
     curses.start_color()
     curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE)
+    curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_BLUE)
+    curses.init_pair(3, curses.COLOR_BLUE, curses.COLOR_WHITE)
 
-    while True:
-        if characterPressed == 27:
+    windows, panels = createPanels()
+
+    while characterPressed != ord('x'):
+        height, width = stdscr.getmaxyx()
+
+        if characterPressed == 10:
             changeLibraryPathMode = False
+            libraryPath = libraryPathTemp
+            panels[0].hide()
+            # TODO Check which flag is switched on
 
         if changeLibraryPathMode:
             if characterPressed == curses.KEY_BACKSPACE:
-                libraryPath = libraryPath[:-1]
+                libraryPathTemp = libraryPathTemp[:-1]
             else:
-                libraryPath += chr(characterPressed)
+                libraryPathTemp += chr(characterPressed)
+
+            windows[0].attron(curses.color_pair(2))
+            windows[0].addstr(1, 1, "Path to library: " + libraryPathTemp.ljust(int(width - 0.5 * width - 19), " "))
+            windows[0].attroff(curses.color_pair(2))
         else:
             if (characterPressed == curses.KEY_DOWN) and (len(items) != 0):
                 position = ((position + 1) % len(items))
@@ -72,11 +85,23 @@ def draw(stdscr):
                     startListPosition = startListPosition - delta
                     endListPosition = endListPosition - delta
                 position = startListPosition
-            elif characterPressed == ord('x'):
-                break
             elif characterPressed == ord('r'):
                 if os.path.isdir(libraryPath):
-                    stdscr.addstr(1, 1, libraryPathHeader + "  Reloading...")
+                    window = curses.newwin(7, 24, int(height - 0.5 * height - 4), int(width / 2 - 12))
+                    window.erase()
+                    window.attron(curses.color_pair(2))
+                    window.box()
+                    window.addstr(1, 1, "".ljust(22, " "))
+                    window.addstr(2, 1, "".ljust(22, " "))
+                    window.addstr(3, 1, "     Reloading...     ")
+                    window.addstr(4, 1, "".ljust(22, " "))
+                    window.addstr(5, 1, "".ljust(22, " "))
+                    window.attroff(curses.color_pair(2))
+                    windows[1] = window
+                    panels[1].replace(window)
+                    panels[1].top()
+                    panels[1].show()
+                    curses.panel.update_panels()
                     stdscr.refresh()
                     
                     if libraryPath[len(libraryPath) - 1] != "/":
@@ -113,49 +138,62 @@ def draw(stdscr):
 
                     items = getItemsFromDatabase(libraryPath)
                     readItems = reduce((lambda a, b: a + b), list(map(lambda x: x[3], items)))
+                    panels[1].hide()
+                    curses.panel.update_panels()
             elif characterPressed == ord('c'):
                 changeLibraryPathMode = True
+                window = curses.newwin(3, int(width - 0.5 * width), int(height - 0.5 * height - 2), int(width - 0.75 * width))
+                window.erase()
+                window.attron(curses.color_pair(2))
+                window.box()
+                window.addstr(1, 1, "Path to library: " + libraryPath.ljust(int(width - 0.5 * width - 19), " "))
+                window.attroff(curses.color_pair(2))
+                windows[0] = window
+                panels[0].replace(window)
+                panels[0].top()
+                panels[0].show()
+                curses.panel.update_panels()
+                libraryPathTemp = libraryPath
             elif characterPressed == ord(' '):
                 if len(items) > 0:
                     items[position] = (items[position][0], items[position][1], items[position][2], int(not items[position][3]))
                     updateDocument(libraryPath, items[position])
                     readItems = reduce((lambda a, b: a + b), list(map(lambda x: x[3], items)))
 
-        stdscr.clear()
-        height, width = stdscr.getmaxyx()
-
         if len(items) > 0:
-            if (height - 6) != (endListPosition - startListPosition):
-                endListPosition = (startListPosition + (height - 6))
+            if (height - 2) != (endListPosition - startListPosition):
+                endListPosition = (startListPosition + (height - 3))
                 if position > endListPosition:
                     endListPosition = position
-                    startListPosition = endListPosition - (height - 6)
+                    startListPosition = endListPosition - (height - 3)
             if endListPosition >= len(items):
                 endListPosition = len(items) - 1
-                startListPosition = endListPosition - (height - 6)
+                startListPosition = endListPosition - (height - 3)
 
-        libraryPathHeader = "Path to library: " + libraryPath
-        stdscr.addstr(1, 1, libraryPathHeader)
+        stdscr.clear()
+
         if changeLibraryPathMode:
-            stdscr.attron(curses.color_pair(1))
-            stdscr.addstr(1, 1 + len(libraryPathHeader), " ")
-            stdscr.attroff(curses.color_pair(1))
+            windows[0].attron(curses.color_pair(3))
+            windows[0].addstr(1, 1 + 17 + len(libraryPathTemp), " ")
+            windows[0].attroff(curses.color_pair(3))
 
         # Items list
         itemsListHeader = " Number | Is read? | Path"
         stdscr.attron(curses.color_pair(1))
-        stdscr.addstr(3, 0, itemsListHeader)
-        stdscr.addstr(3, len(itemsListHeader), " " * (width - len(itemsListHeader) - 1))
+        stdscr.addstr(0, 0, itemsListHeader)
+        stdscr.addstr(0, len(itemsListHeader), " " * (width - len(itemsListHeader) - 1))
         stdscr.attroff(curses.color_pair(1))
         if len(items) > 0:
             drawItems(stdscr, items[startListPosition:(endListPosition + 1)], items[position], startListPosition)
 
         # Status bar
-        statusbarstr = " e(x)it | (c)hange library path / (ESC) return | (r)eload | (SPC) mark read/unread | Read items: {}/{}".format(readItems, len(items))
+        statusbarstr = " e(x)it | (c)hange library path | (r)eload | (SPC) read/unread | Read items: {}/{}".format(readItems, len(items))
         stdscr.attron(curses.color_pair(1))
         stdscr.addstr(height - 1, 0, statusbarstr)
-        stdscr.addstr(height - 1, len(statusbarstr), " " * (width - len(statusbarstr) - 1))
+        stdscr.addstr(height - 1, len(statusbarstr), ("library: " + libraryPath + " ").rjust((width - len(statusbarstr) - 1), " "))
         stdscr.attroff(curses.color_pair(1))
+
+        curses.panel.update_panels()
 
         # Refresh the screen
         stdscr.refresh()
@@ -164,6 +202,29 @@ def draw(stdscr):
 
 def main():
     curses.wrapper(draw)
+
+def createPanels():
+    windows = []
+    panels = []
+
+    windows.append(curses.newwin(0, 0, 0, 0)) # DB path
+    panels.append(curses.panel.new_panel(windows[0]))
+
+    windows.append(curses.newwin(0, 0, 0, 0)) # Info about refreshing (also if give path is not directory)
+    panels.append(curses.panel.new_panel(windows[1]))
+
+    windows.append(curses.newwin(0, 0, 0, 0)) # Saving extensions
+    panels.append(curses.panel.new_panel(windows[2]))
+
+    windows.append(curses.newwin(0, 0, 0, 0)) # Info after reloading DB
+    panels.append(curses.panel.new_panel(windows[3]))
+
+    panels[0].hide()
+    panels[1].hide()
+    panels[2].hide()
+    panels[3].hide()
+
+    return windows, panels
 
 def listFiles(directory):
     filesList = []
@@ -268,11 +329,11 @@ def deleteData(directory, deleteStatements):
     return result
 
 def drawItems(screen, items, selectedItem, startPosition):
-    index = 0
+    index = 1
     for item in items:
         if item == selectedItem:
             screen.attron(curses.color_pair(1))
-        screen.addstr(index + 4, 0, "{:^8}|{:^10}| {}".format(startPosition + index, ("*" if item[3] == 1 else ""), item[1]))
+        screen.addstr(index, 0, "{:^8}|{:^10}| {}".format(startPosition + index, ("*" if item[3] == 1 else ""), item[1]))
         if item == selectedItem:
             screen.attroff(curses.color_pair(1))
         index = index + 1
@@ -296,7 +357,6 @@ if __name__ == "__main__":
     main()
 
 #TODO REFACTOR CODE
-#TODO ASK FOR MOVED FILES
 #TODO HANDLE BETTER SCREEN SIZES
 #TODO ADD POSSIBILITY FOR USER TO CHANGE FILES EXTENSION FILTER
 #TODO ADD HASH OF FILE BASED ON CONTENT TO CHANGE ONLY FILE NAME IN CASE
