@@ -7,7 +7,7 @@ import sqlite3
 import hashlib
 from functools import reduce
 
-def draw(stdscr):
+def main(stdscr):
     characterPressed = 0
     items = []
     position = 0
@@ -17,6 +17,7 @@ def draw(stdscr):
     libraryPath = ""
     libraryPathTemp = ""
     changeLibraryPathMode = False
+    infoWindowMode = False
 
     # Clear and refresh the screen for a blank canvas
     stdscr.clear()
@@ -34,16 +35,25 @@ def draw(stdscr):
     while characterPressed != ord('x'):
         height, width = stdscr.getmaxyx()
 
-        if characterPressed == 10:
-            changeLibraryPathMode = False
-            libraryPath = libraryPathTemp
-            panels[0].hide()
-            # TODO Check which flag is switched on
+        if infoWindowMode:
+            if characterPressed == 10:
+                infoWindowMode = False
+                panels[2].hide()
+            else:
+                characterPressed = stdscr.getch()
+                # TODO Fix this
+                continue
 
         if changeLibraryPathMode:
             if characterPressed == curses.KEY_BACKSPACE:
                 libraryPathTemp = libraryPathTemp[:-1]
+            elif characterPressed == 10:
+                changeLibraryPathMode = False
+                libraryPath = libraryPathTemp
+                panels[0].hide()
+                # TODO Check which flag is switched on
             else:
+                # TODO Only printable characters
                 libraryPathTemp += chr(characterPressed)
 
             windows[0].attron(curses.color_pair(2))
@@ -113,33 +123,65 @@ def draw(stdscr):
                     databaseItems = getItemsFromDatabase(libraryPath)
                     filePaths = listFiles(libraryPath)
                     fileHashes = calculateHashes(libraryPath, filePaths)
-                    items = {} # {"filePath": [False, False]} - first one if it exists in filePaths, second if in database
+                    databaseHashes = {}
+                    items = {} # {"fileHash": [False, False]} - first one if it exists in fileHashes, second if in database
                     insertStatements = []
                     deleteStatements = []
+                    updateStatements = []
 
-                    for filePath in filePaths:
-                        items[filePath] = [True, False]
+                    for fileHash, filePath in fileHashes.items():
+                        items[fileHash] = [True, False]
 
                     for databaseItem in databaseItems:
-                        data = items.get(databaseItem[1], [False, True])
+                        data = items.get(databaseItem[2], [False, True])
                         data[1] = True
-                        items[databaseItem[1]] = data
+                        items[databaseItem[2]] = data
+                        databaseHashes[databaseItem[2]] = databaseItem[1]
 
-                    for filePath, info in items.items():
+                    addedItems = 0
+                    removedItems = 0
+                    movedItems = 0
+                    
+                    for fileHash, info in items.items():
                         if info[0] and not info[1]:
-                            insertStatements += [["INSERT INTO documents (relative_path, content_hash, is_read) VALUES (?, ?, 0)", filePath, fileHashes[filePath]]]
+                            insertStatements += [["INSERT INTO documents (relative_path, content_hash, is_read) VALUES (?, ?, 0)", fileHashes[fileHash], fileHash]]
+                            addedItems += 1
 
                         if not info[0] and info[1]:
-                            deleteStatements += [["DELETE FROM documents WHERE relative_path=?", filePath]]
+                            deleteStatements += [["DELETE FROM documents WHERE content_hash=?", fileHash]]
+                            removedItems += 1
+
+                        if info[0] and info[1]:
+                            if fileHashes[fileHash] != databaseHashes[fileHash]:
+                                updateStatements += [["UPDATE documents SET relative_path=? WHERE content_hash=?", fileHashes[fileHash], fileHash]]
+                                movedItems += 1
                             
                     
                     insertData(libraryPath, insertStatements)
                     deleteData(libraryPath, deleteStatements)
+                    updateData(libraryPath, updateStatements)
 
                     items = getItemsFromDatabase(libraryPath)
                     readItems = reduce((lambda a, b: a + b), list(map(lambda x: x[3], items)))
                     panels[1].hide()
+                    window = curses.newwin(9, 20, int(height - 0.5 * height - 5), int(width / 2 - 10))
+                    window.erase()
+                    window.attron(curses.color_pair(2))
+                    window.box()
+                    window.addstr(1, 1, "".ljust(18, " "))
+                    window.addstr(2, 1, "       INFO       ")
+                    window.addstr(3, 1, "".ljust(18, " "))
+                    window.addstr(4, 1, (" " + str(addedItems) + " files added").ljust(18, " "))
+                    window.addstr(5, 1, (" " + str(removedItems) + " files removed").ljust(18, " "))
+                    window.addstr(6, 1, (" " + str(movedItems) + " files moved").ljust(18, " "))
+                    window.addstr(7, 1, "".ljust(18, " "))
+                    window.attroff(curses.color_pair(2))
+                    windows[2] = window
+                    panels[2].replace(window)
+                    panels[2].top()
+                    panels[2].show()
                     curses.panel.update_panels()
+                    infoWindowMode = True
             elif characterPressed == ord('c'):
                 changeLibraryPathMode = True
                 window = curses.newwin(3, int(width - 0.5 * width), int(height - 0.5 * height - 2), int(width - 0.75 * width))
@@ -200,9 +242,6 @@ def draw(stdscr):
         # Wait for next input
         characterPressed = stdscr.getch()
 
-def main():
-    curses.wrapper(draw)
-
 def createPanels():
     windows = []
     panels = []
@@ -213,10 +252,10 @@ def createPanels():
     windows.append(curses.newwin(0, 0, 0, 0)) # Info about refreshing (also if give path is not directory)
     panels.append(curses.panel.new_panel(windows[1]))
 
-    windows.append(curses.newwin(0, 0, 0, 0)) # Saving extensions
+    windows.append(curses.newwin(0, 0, 0, 0)) # Info after reloading DB
     panels.append(curses.panel.new_panel(windows[2]))
 
-    windows.append(curses.newwin(0, 0, 0, 0)) # Info after reloading DB
+    windows.append(curses.newwin(0, 0, 0, 0)) # Extensions window
     panels.append(curses.panel.new_panel(windows[3]))
 
     panels[0].hide()
@@ -260,7 +299,7 @@ def calculateHashes(directory, fileList):
                 if not data:
                     break
                 hash.update(data)
-            hashes[filePath] = hash.hexdigest()
+            hashes[hash.hexdigest()] = filePath
 
     return hashes
 
@@ -328,6 +367,22 @@ def deleteData(directory, deleteStatements):
 
     return result
 
+def updateData(directory, updateStatements):
+    result = False
+
+    try:
+        connection = sqlite3.connect(directory + "database.db")
+        for statement in updateStatements:
+            connection.cursor().execute(statement[0], [statement[1], statement[2]])
+        connection.commit()
+        result = True
+    except Exception:
+        pass
+    finally:
+        connection.close()
+
+    return result
+
 def drawItems(screen, items, selectedItem, startPosition):
     index = 1
     for item in items:
@@ -354,11 +409,11 @@ def updateDocument(directory, document):
     return result
 
 if __name__ == "__main__":
-    main()
+    curses.wrapper(main)
 
 #TODO REFACTOR CODE
 #TODO HANDLE BETTER SCREEN SIZES
 #TODO ADD POSSIBILITY FOR USER TO CHANGE FILES EXTENSION FILTER
-#TODO ADD HASH OF FILE BASED ON CONTENT TO CHANGE ONLY FILE NAME IN CASE
-#TODO ADD INFO WINDOW ABOUT ADDED/MOVED/REMOVED FILES
 #TODO ADD HANDLER FOR SITUATION WHERE THERE IS NO ITEMS IN DIRECTORY
+#TODO ADD HANDLING FOR TWO FILES WITH SAME CONTENT AND DIFFERENT TITLES
+#TODO Check why there is difference between current database and newly created
