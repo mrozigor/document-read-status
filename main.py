@@ -7,7 +7,106 @@ import sqlite3
 import hashlib
 from functools import reduce
 
-def main(stdscr):
+class View:
+    STATUS_BAR = " e(x)it | (c)hange library path | (r)eload | (SPC) read/unread | Read items: {}/{}"
+    ITEMS_LIST_HEADER = " Number | Is read? | Path"
+
+    def __init__(self, screen):
+        self.screen = screen
+        self.initializeCurses()
+        self.createPanels()
+
+    def initializeCurses(self):
+        self.screen.clear()
+        self.screen.refresh()
+        curses.curs_set(0)
+
+        curses.start_color()
+        curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE)
+        curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_BLUE)
+        curses.init_pair(3, curses.COLOR_BLUE, curses.COLOR_WHITE)
+
+    def createPanels(self):
+        self.windows = []
+        self.panels = []
+
+        self.windows.append(curses.newwin(0, 0, 0, 0)) # DB path
+        self.panels.append(curses.panel.new_panel(self.windows[0]))
+
+        self.windows.append(curses.newwin(0, 0, 0, 0)) # Info about refreshing (also if given path is not directory)
+        self.panels.append(curses.panel.new_panel(self.windows[1]))
+
+        self.windows.append(curses.newwin(0, 0, 0, 0)) # Info after reloading DB
+        self.panels.append(curses.panel.new_panel(self.windows[2]))
+
+        self.windows.append(curses.newwin(0, 0, 0, 0)) # Extensions window
+        self.panels.append(curses.panel.new_panel(self.windows[3]))
+
+        self.panels[0].hide()
+        self.panels[1].hide()
+        self.panels[2].hide()
+        self.panels[3].hide()
+
+    def getPressedCharacter(self):
+        return self.screen.getch()
+
+    def drawScreen(self, items, startListPosition, endListPosition, position, readItems, libraryPath):
+        self.height, self.width = self.screen.getmaxyx()
+        # Items list
+        self.screen.attron(curses.color_pair(1))
+        self.screen.addstr(0, 0, self.ITEMS_LIST_HEADER)
+        self.screen.addstr(0, len(self.ITEMS_LIST_HEADER), " " * (self.width - len(self.ITEMS_LIST_HEADER) - 1))
+        self.screen.attroff(curses.color_pair(1))
+        if len(items) > 0:
+            drawItems(self.screen, items[startListPosition:(endListPosition + 1)], items[position], startListPosition)
+
+        # Status bar
+        statusBar = self.STATUS_BAR.format(readItems, len(items))
+        self.screen.attron(curses.color_pair(1))
+        self.screen.addstr(self.height - 1, 0, statusBar)
+        self.screen.addstr(self.height - 1, len(statusBar), ("library: " + libraryPath + " ").rjust((self.width - len(statusBar) - 1), " "))
+        self.screen.attroff(curses.color_pair(1))
+
+        curses.panel.update_panels()
+        self.screen.refresh()
+
+    def showLibrarySelectionDialog(self, currentLibraryPath):
+        window = curses.newwin(3, int(self.width - 0.5 * self.width), int(self.height - 0.5 * self.height - 2), int(self.width - 0.75 * self.width))
+        window.attron(curses.color_pair(2))
+        window.box()
+        window.attroff(curses.color_pair(2))
+        self.windows[0] = window
+        self.panels[0].replace(window)
+        self.panels[0].top()
+        self.panels[0].show()
+
+        characterPressed = -1
+
+        while characterPressed != 10:
+            if characterPressed == curses.KEY_BACKSPACE:
+                currentLibraryPath = currentLibraryPath[:-1]
+            else:
+                try:
+                    currentLibraryPath += chr(characterPressed)
+                except ValueError:
+                    pass
+
+            self.windows[0].attron(curses.color_pair(2))
+            self.windows[0].addstr(1, 1, "Path to library: " + currentLibraryPath.ljust(int(self.width - 0.5 * self.width - 19), " "))
+            self.windows[0].attroff(curses.color_pair(2))
+            curses.panel.update_panels() # TODO IS THIS REALLY NECESSARY?
+            self.screen.refresh()
+
+            characterPressed = self.getPressedCharacter()
+
+        self.panels[0].hide()
+        curses.panel.update_panels()
+        self.screen.refresh()
+
+        return currentLibraryPath
+
+def main(screen):
+    view = View(screen)
     characterPressed = 0
     items = []
     position = 0
@@ -15,50 +114,18 @@ def main(stdscr):
     endListPosition = 0
     readItems = 0
     libraryPath = ""
-    libraryPathTemp = ""
-    changeLibraryPathMode = False
     infoWindowMode = False
 
-    # Clear and refresh the screen for a blank canvas
-    stdscr.clear()
-    stdscr.refresh()
-    curses.curs_set(0)
-
-    # Start colors in curses
-    curses.start_color()
-    curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE)
-    curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_BLUE)
-    curses.init_pair(3, curses.COLOR_BLUE, curses.COLOR_WHITE)
-
-    windows, panels = createPanels()
-
     while characterPressed != ord('x'):
-        height, width = stdscr.getmaxyx()
-
         if infoWindowMode:
             if characterPressed == 10:
                 infoWindowMode = False
                 panels[2].hide()
             else:
-                characterPressed = stdscr.getch()
+                characterPressed = screen.getch()
                 # TODO Fix this
                 continue
 
-        if changeLibraryPathMode:
-            if characterPressed == curses.KEY_BACKSPACE:
-                libraryPathTemp = libraryPathTemp[:-1]
-            elif characterPressed == 10:
-                changeLibraryPathMode = False
-                libraryPath = libraryPathTemp
-                panels[0].hide()
-                # TODO Check which flag is switched on
-            else:
-                # TODO Only printable characters
-                libraryPathTemp += chr(characterPressed)
-
-            windows[0].attron(curses.color_pair(2))
-            windows[0].addstr(1, 1, "Path to library: " + libraryPathTemp.ljust(int(width - 0.5 * width - 19), " "))
-            windows[0].attroff(curses.color_pair(2))
         else:
             if (characterPressed == curses.KEY_DOWN) and (len(items) != 0):
                 position = ((position + 1) % len(items))
@@ -112,7 +179,7 @@ def main(stdscr):
                     panels[1].top()
                     panels[1].show()
                     curses.panel.update_panels()
-                    stdscr.refresh()
+                    screen.refresh()
                     
                     if libraryPath[len(libraryPath) - 1] != "/":
                         libraryPath = libraryPath + "/"
@@ -122,7 +189,7 @@ def main(stdscr):
 
                     databaseItems = getItemsFromDatabase(libraryPath)
                     filePaths = listFiles(libraryPath)
-                    fileHashes = calculateHashes(libraryPath, filePaths)
+                    fileHashes, duplicatedFiles = calculateHashes(libraryPath, filePaths)
                     databaseHashes = {}
                     items = {} # {"fileHash": [False, False]} - first one if it exists in fileHashes, second if in database
                     insertStatements = []
@@ -183,19 +250,7 @@ def main(stdscr):
                     curses.panel.update_panels()
                     infoWindowMode = True
             elif characterPressed == ord('c'):
-                changeLibraryPathMode = True
-                window = curses.newwin(3, int(width - 0.5 * width), int(height - 0.5 * height - 2), int(width - 0.75 * width))
-                window.erase()
-                window.attron(curses.color_pair(2))
-                window.box()
-                window.addstr(1, 1, "Path to library: " + libraryPath.ljust(int(width - 0.5 * width - 19), " "))
-                window.attroff(curses.color_pair(2))
-                windows[0] = window
-                panels[0].replace(window)
-                panels[0].top()
-                panels[0].show()
-                curses.panel.update_panels()
-                libraryPathTemp = libraryPath
+                libraryPath = view.showLibrarySelectionDialog(libraryPath)
             elif characterPressed == ord(' '):
                 if len(items) > 0:
                     items[position] = (items[position][0], items[position][1], items[position][2], int(not items[position][3]))
@@ -212,58 +267,12 @@ def main(stdscr):
                 endListPosition = len(items) - 1
                 startListPosition = endListPosition - (height - 3)
 
-        stdscr.clear()
+        screen.clear()
 
-        if changeLibraryPathMode:
-            windows[0].attron(curses.color_pair(3))
-            windows[0].addstr(1, 1 + 17 + len(libraryPathTemp), " ")
-            windows[0].attroff(curses.color_pair(3))
+        view.drawScreen(items, startListPosition, endListPosition, position, readItems, libraryPath)
 
-        # Items list
-        itemsListHeader = " Number | Is read? | Path"
-        stdscr.attron(curses.color_pair(1))
-        stdscr.addstr(0, 0, itemsListHeader)
-        stdscr.addstr(0, len(itemsListHeader), " " * (width - len(itemsListHeader) - 1))
-        stdscr.attroff(curses.color_pair(1))
-        if len(items) > 0:
-            drawItems(stdscr, items[startListPosition:(endListPosition + 1)], items[position], startListPosition)
-
-        # Status bar
-        statusbarstr = " e(x)it | (c)hange library path | (r)eload | (SPC) read/unread | Read items: {}/{}".format(readItems, len(items))
-        stdscr.attron(curses.color_pair(1))
-        stdscr.addstr(height - 1, 0, statusbarstr)
-        stdscr.addstr(height - 1, len(statusbarstr), ("library: " + libraryPath + " ").rjust((width - len(statusbarstr) - 1), " "))
-        stdscr.attroff(curses.color_pair(1))
-
-        curses.panel.update_panels()
-
-        # Refresh the screen
-        stdscr.refresh()
         # Wait for next input
-        characterPressed = stdscr.getch()
-
-def createPanels():
-    windows = []
-    panels = []
-
-    windows.append(curses.newwin(0, 0, 0, 0)) # DB path
-    panels.append(curses.panel.new_panel(windows[0]))
-
-    windows.append(curses.newwin(0, 0, 0, 0)) # Info about refreshing (also if give path is not directory)
-    panels.append(curses.panel.new_panel(windows[1]))
-
-    windows.append(curses.newwin(0, 0, 0, 0)) # Info after reloading DB
-    panels.append(curses.panel.new_panel(windows[2]))
-
-    windows.append(curses.newwin(0, 0, 0, 0)) # Extensions window
-    panels.append(curses.panel.new_panel(windows[3]))
-
-    panels[0].hide()
-    panels[1].hide()
-    panels[2].hide()
-    panels[3].hide()
-
-    return windows, panels
+        characterPressed = view.getPressedCharacter()
 
 def listFiles(directory):
     filesList = []
@@ -291,6 +300,7 @@ def listFiles(directory):
 def calculateHashes(directory, fileList):
     BUFFER_SIZE = 10 * 2**20
     hashes = dict()
+    duplicatedFiles = [] # TODO MAKE LIST OF DUPLICATES AND SHOW IT
     for filePath in fileList:
         with open(directory + filePath, 'rb') as file:
             hash = hashlib.sha1()
@@ -301,14 +311,14 @@ def calculateHashes(directory, fileList):
                 hash.update(data)
             hashes[hash.hexdigest()] = filePath
 
-    return hashes
+    return hashes, duplicatedFiles
 
 def createDatabase(directory):
     result = False
 
     try:
         connection = sqlite3.connect(directory + "database.db")
-        connection.cursor().execute("CREATE TABLE IF NOT EXISTS documents (id INTEGER PRIMARY KEY, relative_path text NOT NULL UNIQUE, content_hash text NOT NULL, is_read INTEGER NOT NULL)")
+        connection.cursor().execute("CREATE TABLE IF NOT EXISTS documents (content_hash text PRIMARY KEY, relative_path text NOT NULL UNIQUE, is_read INTEGER NOT NULL)")
         result = True
     except Exception:
         pass
@@ -416,4 +426,3 @@ if __name__ == "__main__":
 #TODO ADD POSSIBILITY FOR USER TO CHANGE FILES EXTENSION FILTER
 #TODO ADD HANDLER FOR SITUATION WHERE THERE IS NO ITEMS IN DIRECTORY
 #TODO ADD HANDLING FOR TWO FILES WITH SAME CONTENT AND DIFFERENT TITLES
-#TODO Check why there is difference between current database and newly created
