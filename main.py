@@ -105,8 +105,186 @@ class View:
 
         return currentLibraryPath
 
+    def showReloadLibraryDialog(self):
+        window = curses.newwin(7, 24, int(self.height - 0.5 * self.height - 4), int(self.width / 2 - 12))
+        window.attron(curses.color_pair(2))
+        window.box()
+        window.addstr(1, 1, "".ljust(22, " "))
+        window.addstr(2, 1, "".ljust(22, " "))
+        window.addstr(3, 1, "     Reloading...     ")
+        window.addstr(4, 1, "".ljust(22, " "))
+        window.addstr(5, 1, "".ljust(22, " "))
+        window.attroff(curses.color_pair(2))
+        self.windows[1] = window
+        self.panels[1].replace(window)
+        self.panels[1].top()
+        self.panels[1].show()
+        curses.panel.update_panels()
+        self.screen.refresh()
+
+    def hideReloadLibraryDialog(self):
+        self.panels[1].hide()
+
+    def showReloadSummaryDialog(self, addedItems, removedItems, movedItems):
+        window = curses.newwin(9, 20, int(self.height - 0.5 * self.height - 5), int(self.width / 2 - 10))
+        window.attron(curses.color_pair(2))
+        window.box()
+        window.addstr(1, 1, "".ljust(18, " "))
+        window.addstr(2, 1, "       INFO       ")
+        window.addstr(3, 1, "".ljust(18, " "))
+        window.addstr(4, 1, (" " + str(addedItems) + " files added").ljust(18, " "))
+        window.addstr(5, 1, (" " + str(removedItems) + " files removed").ljust(18, " "))
+        window.addstr(6, 1, (" " + str(movedItems) + " files moved").ljust(18, " "))
+        window.addstr(7, 1, "".ljust(18, " "))
+        window.attroff(curses.color_pair(2))
+        self.windows[2] = window
+        self.panels[2].replace(window)
+        self.panels[2].top()
+        self.panels[2].show()
+        curses.panel.update_panels()
+        self.screen.refresh()
+
+        while self.getPressedCharacter() != 10:
+            continue
+
+        self.panels[2].hide()
+        self.screen.refresh()
+
+class Controller:
+    DATABASE_FILE_NAME = "database.db"
+    CREATE_TABLE_STATEMENT = "CREATE TABLE IF NOT EXISTS documents (content_hash text PRIMARY KEY, relative_path text NOT NULL UNIQUE, is_read INTEGER NOT NULL)"
+    SELECT_ALL_STATEMENT = "SELECT * FROM documents ORDER BY relative_path ASC"
+
+    def _checkIfDatabaseExists(self, path):
+        return os.path.isfile(path)
+
+    def _createDatabase(self, path):
+        result = False
+
+        try:
+            connection = sqlite3.connect(path)
+            connection.cursor().execute(self.CREATE_TABLE_STATEMENT)
+            result = True
+        except Exception:
+            pass
+        finally:
+            connection.close()
+
+        return result
+
+    def _pathEndsWithSlash(self, path):
+        return path.endswith("/")
+
+    def _loadItemsFromDatabase(self, path):
+        results = []
+
+        try:
+            connection = sqlite3.connect(path)
+            cursor = connection.cursor()
+            cursor.execute(self.SELECT_ALL_STATEMENT)
+            results = cursor.fetchall()
+        except Exception:
+            pass
+        finally:
+            connection.close()
+
+        return results
+
+    def _listFiles(self, path):
+        HASH_BUFFER_SIZE = 10 * 2**20 # 10MB
+        filesList = dict()
+        duplicatedFiles = [] # TODO MAKE LIST OF DUPLICATES AND SHOW IT
+        includedExtensions = [".pdf", ".doc", ".docx", ".odt", ".mobi", ".epub", ".djvu", ".jpg", ".jpeg", ".png"]
+
+        for path2, subdirs, files in os.walk(path):
+            for name in files:
+                add = False
+
+                if name == self.DATABASE_FILE_NAME:
+                    continue
+
+                #for extension in includedExtensions:
+                #    if name.lower().endswith(extension):
+                #        add = True
+                #        break
+                add = True
+
+                if add:
+                    filePath = os.path.join(path2, name)
+                    with open(filePath, 'rb') as file:
+                        hash = hashlib.sha1()
+                        while True:
+                            data = file.read(HASH_BUFFER_SIZE)
+                            if not data:
+                                break
+                            hash.update(data)
+                        # TODO CHECK FOR DUPLICATES WITH FILE ON DISK AND RETURN INFO ABOUT THEM AND DON'T LOAD THEM
+                        filesList[hash.hexdigest()] = filePath.replace(path, "")
+
+        return filesList, duplicatedFiles
+
+    def isDirectory(self, path):
+        return os.path.isdir(path)
+
+    def loadItems(self, libraryPath):
+        if not self._pathEndsWithSlash(libraryPath):
+            libraryPath = libraryPath + "/"
+
+        databasePath = libraryPath + self.DATABASE_FILE_NAME
+
+        if not self._checkIfDatabaseExists(databasePath):
+            self._createDatabase(databasePath)
+
+        databaseItems = self._loadItemsFromDatabase(databasePath)
+        filesData, duplicatedFiles  = self._listFiles(libraryPath)
+
+        databaseHashes = {}
+        items = {} # {"fileHash": [False, False]} - first one if it exists in fileHashes, second if in database
+        insertStatements = [] # TODO CHECKPOINT
+        deleteStatements = []
+        updateStatements = []
+
+        for fileHash, filePath in filesData.items():
+            items[fileHash] = [True, False]
+
+        for databaseItem in databaseItems:
+            data = items.get(databaseItem[2], [False, True])
+            data[1] = True
+            items[databaseItem[2]] = data
+            databaseHashes[databaseItem[2]] = databaseItem[1]
+
+        addedItems = 0
+        removedItems = 0
+        movedItems = 0
+
+        for fileHash, info in items.items():
+            if info[0] and not info[1]:
+                insertStatements += [["INSERT INTO documents (relative_path, content_hash, is_read) VALUES (?, ?, 0)", filesData[fileHash], fileHash]]
+                addedItems += 1
+
+            if not info[0] and info[1]:
+                deleteStatements += [["DELETE FROM documents WHERE content_hash=?", fileHash]]
+                removedItems += 1
+
+            if info[0] and info[1]:
+                if filesData[fileHash] != databaseHashes[fileHash]:
+                    updateStatements += [["UPDATE documents SET relative_path=? WHERE content_hash=?", filesData[fileHash], fileHash]]
+                    movedItems += 1
+
+        insertData(libraryPath, insertStatements)
+        deleteData(libraryPath, deleteStatements)
+        updateData(libraryPath, updateStatements)
+
+        self.items = self._loadItemsFromDatabase(databasePath)
+
+        return self.items, addedItems, removedItems, movedItems
+
+    def getReadItems(self):
+        return reduce((lambda a, b: a + b), list(map(lambda x: x[3], self.items)))
+
 def main(screen):
     view = View(screen)
+    controller = Controller()
     characterPressed = 0
     items = []
     position = 0
@@ -114,19 +292,9 @@ def main(screen):
     endListPosition = 0
     readItems = 0
     libraryPath = ""
-    infoWindowMode = False
 
     while characterPressed != ord('x'):
-        if infoWindowMode:
-            if characterPressed == 10:
-                infoWindowMode = False
-                panels[2].hide()
-            else:
-                characterPressed = screen.getch()
-                # TODO Fix this
-                continue
-
-        else:
+        if True: #TODO REMOVE AND CHANGE INDENT
             if (characterPressed == curses.KEY_DOWN) and (len(items) != 0):
                 position = ((position + 1) % len(items))
                 if position > endListPosition:
@@ -163,92 +331,12 @@ def main(screen):
                     endListPosition = endListPosition - delta
                 position = startListPosition
             elif characterPressed == ord('r'):
-                if os.path.isdir(libraryPath):
-                    window = curses.newwin(7, 24, int(height - 0.5 * height - 4), int(width / 2 - 12))
-                    window.erase()
-                    window.attron(curses.color_pair(2))
-                    window.box()
-                    window.addstr(1, 1, "".ljust(22, " "))
-                    window.addstr(2, 1, "".ljust(22, " "))
-                    window.addstr(3, 1, "     Reloading...     ")
-                    window.addstr(4, 1, "".ljust(22, " "))
-                    window.addstr(5, 1, "".ljust(22, " "))
-                    window.attroff(curses.color_pair(2))
-                    windows[1] = window
-                    panels[1].replace(window)
-                    panels[1].top()
-                    panels[1].show()
-                    curses.panel.update_panels()
-                    screen.refresh()
-                    
-                    if libraryPath[len(libraryPath) - 1] != "/":
-                        libraryPath = libraryPath + "/"
-
-                    if not checkIfDatabaseExists(libraryPath):
-                        createDatabase(libraryPath)
-
-                    databaseItems = getItemsFromDatabase(libraryPath)
-                    filePaths = listFiles(libraryPath)
-                    fileHashes, duplicatedFiles = calculateHashes(libraryPath, filePaths)
-                    databaseHashes = {}
-                    items = {} # {"fileHash": [False, False]} - first one if it exists in fileHashes, second if in database
-                    insertStatements = []
-                    deleteStatements = []
-                    updateStatements = []
-
-                    for fileHash, filePath in fileHashes.items():
-                        items[fileHash] = [True, False]
-
-                    for databaseItem in databaseItems:
-                        data = items.get(databaseItem[2], [False, True])
-                        data[1] = True
-                        items[databaseItem[2]] = data
-                        databaseHashes[databaseItem[2]] = databaseItem[1]
-
-                    addedItems = 0
-                    removedItems = 0
-                    movedItems = 0
-                    
-                    for fileHash, info in items.items():
-                        if info[0] and not info[1]:
-                            insertStatements += [["INSERT INTO documents (relative_path, content_hash, is_read) VALUES (?, ?, 0)", fileHashes[fileHash], fileHash]]
-                            addedItems += 1
-
-                        if not info[0] and info[1]:
-                            deleteStatements += [["DELETE FROM documents WHERE content_hash=?", fileHash]]
-                            removedItems += 1
-
-                        if info[0] and info[1]:
-                            if fileHashes[fileHash] != databaseHashes[fileHash]:
-                                updateStatements += [["UPDATE documents SET relative_path=? WHERE content_hash=?", fileHashes[fileHash], fileHash]]
-                                movedItems += 1
-                            
-                    
-                    insertData(libraryPath, insertStatements)
-                    deleteData(libraryPath, deleteStatements)
-                    updateData(libraryPath, updateStatements)
-
-                    items = getItemsFromDatabase(libraryPath)
-                    readItems = reduce((lambda a, b: a + b), list(map(lambda x: x[3], items)))
-                    panels[1].hide()
-                    window = curses.newwin(9, 20, int(height - 0.5 * height - 5), int(width / 2 - 10))
-                    window.erase()
-                    window.attron(curses.color_pair(2))
-                    window.box()
-                    window.addstr(1, 1, "".ljust(18, " "))
-                    window.addstr(2, 1, "       INFO       ")
-                    window.addstr(3, 1, "".ljust(18, " "))
-                    window.addstr(4, 1, (" " + str(addedItems) + " files added").ljust(18, " "))
-                    window.addstr(5, 1, (" " + str(removedItems) + " files removed").ljust(18, " "))
-                    window.addstr(6, 1, (" " + str(movedItems) + " files moved").ljust(18, " "))
-                    window.addstr(7, 1, "".ljust(18, " "))
-                    window.attroff(curses.color_pair(2))
-                    windows[2] = window
-                    panels[2].replace(window)
-                    panels[2].top()
-                    panels[2].show()
-                    curses.panel.update_panels()
-                    infoWindowMode = True
+                if controller.isDirectory(libraryPath):
+                    view.showReloadLibraryDialog()
+                    [items, addedItems, removedItems, movedItems] = controller.loadItems(libraryPath)
+                    readItems = controller.getReadItems()
+                    view.hideReloadLibraryDialog()
+                    view.showReloadSummaryDialog(addedItems, removedItems, movedItems)
             elif characterPressed == ord('c'):
                 libraryPath = view.showLibrarySelectionDialog(libraryPath)
             elif characterPressed == ord(' '):
@@ -273,77 +361,6 @@ def main(screen):
 
         # Wait for next input
         characterPressed = view.getPressedCharacter()
-
-def listFiles(directory):
-    filesList = []
-    includedExtensions = [".pdf", ".doc", ".docx", ".odt", ".mobi", ".epub", ".djvu", ".jpg", ".jpeg", ".png"]
-
-    if os.path.isdir(directory):
-        for path, subdirs, files in os.walk(directory):
-            for name in files:
-                add = False
-
-                if name == "database.db":
-                    continue
-
-                #for extension in includedExtensions:
-                #    if name.lower().endswith(extension):
-                #        add = True
-                #        break
-                add = True
-
-                if add:
-                    filesList += [os.path.join(path, name).replace(directory, "")]
-
-    return filesList
-
-def calculateHashes(directory, fileList):
-    BUFFER_SIZE = 10 * 2**20
-    hashes = dict()
-    duplicatedFiles = [] # TODO MAKE LIST OF DUPLICATES AND SHOW IT
-    for filePath in fileList:
-        with open(directory + filePath, 'rb') as file:
-            hash = hashlib.sha1()
-            while True:
-                data = file.read(BUFFER_SIZE) #10MB
-                if not data:
-                    break
-                hash.update(data)
-            hashes[hash.hexdigest()] = filePath
-
-    return hashes, duplicatedFiles
-
-def createDatabase(directory):
-    result = False
-
-    try:
-        connection = sqlite3.connect(directory + "database.db")
-        connection.cursor().execute("CREATE TABLE IF NOT EXISTS documents (content_hash text PRIMARY KEY, relative_path text NOT NULL UNIQUE, is_read INTEGER NOT NULL)")
-        result = True
-    except Exception:
-        pass
-    finally:
-        connection.close()
-
-    return result
-
-def checkIfDatabaseExists(directory):
-    return os.path.isfile(directory + "database.db")
-
-def getItemsFromDatabase(directory):
-    results = []
-
-    try:
-        connection = sqlite3.connect(directory + "database.db")
-        cursor = connection.cursor()
-        cursor.execute("SELECT * FROM documents ORDER BY relative_path ASC")
-        results = cursor.fetchall()
-    except Exception:
-        pass
-    finally:
-        connection.close()
-
-    return results
 
 def insertData(directory, insertStatements):
     result = False
@@ -422,7 +439,11 @@ if __name__ == "__main__":
     curses.wrapper(main)
 
 #TODO REFACTOR CODE
-#TODO HANDLE BETTER SCREEN SIZES
+#TODO HANDLE BETTER SCREEN SIZES (ALSO DIALOGS)
+#TODO ADD INFO ABOUT INSUFFICIENT HEIGHT/WIDTH IF IT IS THE CASE
+#TODO BASED ON ABOVE CALCULATE DIALOGS AT THE BEGINNING
+#TODO ABSTRACT DIALOGS INTO NEW CLASS
+#TODO IF TEXT DOESN'T FIT INTO DIALOG THEN SCROLL IT (ALSO STATUS BAR ETC.)
 #TODO ADD POSSIBILITY FOR USER TO CHANGE FILES EXTENSION FILTER
 #TODO ADD HANDLER FOR SITUATION WHERE THERE IS NO ITEMS IN DIRECTORY
 #TODO ADD HANDLING FOR TWO FILES WITH SAME CONTENT AND DIFFERENT TITLES
