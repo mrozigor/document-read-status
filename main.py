@@ -13,6 +13,9 @@ class View:
 
     def __init__(self, screen):
         self.libraryPath = ""
+        self.position = 0
+        self.startListPosition = 0
+        self.endListPosition = 0
         self.screen = screen
         self._initializeCurses()
         self._createPanels()
@@ -48,12 +51,12 @@ class View:
         self.panels[2].hide()
         self.panels[3].hide()
 
-    def _drawItems(items, selectedItem, startPosition):
+    def _drawItems(self, items, selectedItem):
         index = 1
         for item in items:
             if item == selectedItem:
                 self.screen.attron(curses.color_pair(1))
-            self.screen.addstr(index, 0, "{:^8}|{:^10}| {}".format(startPosition + index, ("*" if item[3] == 1 else ""), item[1]))
+            self.screen.addstr(index, 0, "{:^8}|{:^10}| {}".format(self.startListPosition + index, ("*" if item[3] == 1 else ""), item[1]))
             if item == selectedItem:
                 self.screen.attroff(curses.color_pair(1))
             index = index + 1
@@ -61,9 +64,19 @@ class View:
     def getPressedCharacter(self):
         return self.screen.getch()
 
-    def drawScreen(self, items, startListPosition, endListPosition, position, readItems):
+    def drawScreen(self, items, readItems):     
         self.screen.clear()
         self.height, self.width = self.screen.getmaxyx()
+
+        if len(items) > 0:
+            if (self.height - 2) != (self.endListPosition - self.startListPosition):
+                self.endListPosition = (self.startListPosition + (self.height - 3))
+                if self.position > self.endListPosition:
+                    self.endListPosition = self.position
+                    self.startListPosition = self.endListPosition - (self.height - 3)
+            if self.endListPosition >= len(items):
+                self.endListPosition = len(items) - 1
+                self.startListPosition = self.endListPosition - (self.height - 3)
         
         # Items list
         self.screen.attron(curses.color_pair(1))
@@ -71,7 +84,7 @@ class View:
         self.screen.addstr(0, len(self.ITEMS_LIST_HEADER), " " * (self.width - len(self.ITEMS_LIST_HEADER) - 1))
         self.screen.attroff(curses.color_pair(1))
         if len(items) > 0:
-            self._drawItems(items[startListPosition:(endListPosition + 1)], items[position], startListPosition)
+            self._drawItems(items[self.startListPosition:(self.endListPosition + 1)], items[self.position])
 
         # Status bar
         statusBar = self.STATUS_BAR.format(readItems, len(items))
@@ -163,6 +176,48 @@ class View:
 
     def getLibraryPath(self):
         return self.libraryPath
+
+    def moveDown(self, numberOfItems):
+        self.position = ((self.position + 1) % numberOfItems)
+        if self.position > self.endListPosition:
+            self.startListPosition = self.startListPosition + 1
+            self.endListPosition = self.endListPosition + 1
+        if self.position < self.startListPosition:
+            self.startListPosition = self.position
+            self.endListPosition = self.position
+
+    def moveUp(self, numberOfItems):
+        self.position = ((self.position - 1) % numberOfItems)
+        if self.position < self.startListPosition:
+            self.startListPosition = self.startListPosition - 1
+            self.endListPosition = self.endListPosition - 1
+        if self.position > self.endListPosition:
+            self.startListPosition = self.position
+            self.endListPosition = self.position
+
+    def moveScreenDown(self, numberOfItems):
+        delta = self.endListPosition - self.startListPosition
+        if (self.endListPosition + delta) > numberOfItems:
+            self.endListPosition = numberOfItems - 1
+            self.startListPosition = self.endListPosition - delta
+            self.position = self.endListPosition
+        else:
+            self.startListPosition = self.startListPosition + delta
+            self.endListPosition = self.endListPosition + delta
+            self.position = self.startListPosition
+
+    def moveScreenUp(self):
+        delta = self.endListPosition - self.startListPosition
+        if (self.startListPosition - delta) < 0:
+            self.startListPosition = 0
+            self.endListPosition = self.startListPosition + delta
+        else:
+            self.startListPosition = self.startListPosition - delta
+            self.endListPosition = self.endListPosition - delta
+        self.position = self.startListPosition
+
+    def getPosition(self):
+        return self.position
 
 class Controller:
     DATABASE_FILE_NAME = "database.db"
@@ -327,7 +382,7 @@ class Controller:
         if len(self.items) <= 0:
             return # TODO MAYBE CHECK OTHER WAY IF POSITION IS CORRECT?
         
-        self.items[position][3] = int(not self.items[position][3])
+        self.items[position] = (self.items[position][0], self.items[position][1], self.items[position][2], int(not self.items[position][3]))
         sqlStatement = [[self.UPDATE_READ_STATUS_STATEMENT, {"is_read": self.items[position][3], "id": self.items[position][0]}]]
         self._executeSql(sqlStatement)
 
@@ -335,46 +390,16 @@ def main(screen):
     view = View(screen)
     controller = Controller()
     characterPressed = 0
-    position = 0
-    startListPosition = 0
-    endListPosition = 0
 
     while characterPressed != ord('x'):
         if (characterPressed == curses.KEY_DOWN) and (controller.getNumberOfItems() != 0):
-            position = ((position + 1) % controller.getNumberOfItems())
-            if position > endListPosition:
-                startListPosition = startListPosition + 1
-                endListPosition = endListPosition + 1
-            if position < startListPosition:
-                startListPosition = position
-                endListPosition = position
+            view.moveDown(controller.getNumberOfItems())
         elif (characterPressed == curses.KEY_UP) and (controller.getNumberOfItems() != 0):
-            position = ((position - 1) % controller.getNumberOfItems())
-            if position < startListPosition:
-                startListPosition = startListPosition - 1
-                endListPosition = endListPosition - 1
-            if position > endListPosition:
-                startListPosition = position
-                endListPosition = position
+            view.moveUp(controller.getNumberOfItems())
         elif (characterPressed == curses.KEY_RIGHT) and (controller.getNumberOfItems() != 0):
-            delta = endListPosition - startListPosition
-            if (endListPosition + delta) > controller.getNumberOfItems():
-                endListPosition = controller.getNumberOfItems() - 1
-                startListPosition = endListPosition - delta
-                position = endListPosition
-            else:
-                startListPosition = startListPosition + delta
-                endListPosition = endListPosition + delta
-                position = startListPosition
+            view.moveScreenDown(controller.getNumberOfItems())
         elif (characterPressed == curses.KEY_LEFT) and (controller.getNumberOfItems() != 0):
-            delta = endListPosition - startListPosition
-            if (startListPosition - delta) < 0:
-                startListPosition = 0
-                endListPosition = startListPosition + delta
-            else:
-                startListPosition = startListPosition - delta
-                endListPosition = endListPosition - delta
-            position = startListPosition
+            view.moveScreenUp()
         elif characterPressed == ord('r'):
             if controller.isDirectory(view.getLibraryPath()):
                 view.showReloadLibraryDialog()
@@ -384,21 +409,10 @@ def main(screen):
         elif characterPressed == ord('c'):
             view.showLibrarySelectionDialog()
         elif characterPressed == ord(' '):
-            controller.changeReadState(position)
+            controller.changeReadState(view.getPosition())
 
-        if controller.getNumberOfItems() > 0:
-            if (height - 2) != (endListPosition - startListPosition):
-                endListPosition = (startListPosition + (height - 3))
-                if position > endListPosition:
-                    endListPosition = position
-                    startListPosition = endListPosition - (height - 3)
-            if endListPosition >= controller.getNumberOfItems():
-                endListPosition = controller.getNumberOfItems() - 1
-                startListPosition = endListPosition - (height - 3)
+        view.drawScreen(controller.getItems(), controller.getReadItems())
 
-        view.drawScreen(controller.getItems(), startListPosition, endListPosition, position, controller.getReadItems())
-
-        # Wait for next input
         characterPressed = view.getPressedCharacter()
 
 if __name__ == "__main__":
