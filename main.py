@@ -24,10 +24,16 @@ def main(screen):
                 [items, addedItems, removedItems, movedItems] = controller.loadItems(view.getLibraryPath())
                 view.hideReloadLibraryDialog()
                 view.showReloadSummaryDialog(addedItems, removedItems, movedItems)
+            else:
+                view.showLibraryPathIsNotDirectoryDialog()
         elif characterPressed == ord('c'):
             view.showLibrarySelectionDialog()
         elif characterPressed == ord(' '):
             controller.changeReadState(view.getPosition())
+        elif characterPressed == ord('e'):
+            selectedExtensions = view.showExtensionsDialog()
+            controller.processExtensionsFilter()
+            #TODO
 
         view.drawScreen(controller.getItems(), controller.getReadItems())
 

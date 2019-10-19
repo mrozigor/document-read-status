@@ -5,7 +5,7 @@ from functools import reduce
 
 class Controller:
     DATABASE_FILE_NAME = "database.db"
-    CREATE_TABLE_STATEMENT = "CREATE TABLE IF NOT EXISTS documents (content_hash text PRIMARY KEY, relative_path text NOT NULL UNIQUE, is_read INTEGER NOT NULL)"
+    CREATE_TABLE_STATEMENT = "CREATE TABLE IF NOT EXISTS documents (content_hash text PRIMARY KEY, relative_path text NOT NULL, is_read INTEGER NOT NULL)"
     SELECT_ALL_STATEMENT = "SELECT * FROM documents ORDER BY relative_path ASC"
     INSERT_STATEMENT = "INSERT INTO documents (relative_path, content_hash, is_read) VALUES (:relative_path, :content_hash, 0)"
     DELETE_STATEMENT = "DELETE FROM documents WHERE content_hash=:content_hash"
@@ -54,7 +54,6 @@ class Controller:
         HASH_BUFFER_SIZE = 10 * 2**20 # 10MB
         filesList = dict()
         duplicatedFiles = [] # TODO MAKE LIST OF DUPLICATES AND SHOW IT
-        includedExtensions = [".pdf", ".doc", ".docx", ".odt", ".mobi", ".epub", ".djvu", ".jpg", ".jpeg", ".png"]
 
         for path2, subdirs, files in os.walk(path):
             for name in files:
@@ -63,11 +62,11 @@ class Controller:
                 if name == self.DATABASE_FILE_NAME:
                     continue
 
-                #for extension in includedExtensions:
-                #    if name.lower().endswith(extension):
+                #TODO RETHINK IT - EXTENSION FILTER SHOULD ONLY FILTER VIEW OR ALSO ENTRIES IN DB?
+                #for extension in self.extensions:
+                #    if name.lower().endswith("." + extension):
                 #        add = True
                 #        break
-                add = True
 
                 if add:
                     filePath = os.path.join(path2, name)
@@ -95,7 +94,6 @@ class Controller:
             connection.commit()
         except Exception:
             result = False
-            pass
         finally:
             connection.close()
 
@@ -134,10 +132,6 @@ class Controller:
         movedItems = 0
 
         for fileHash, info in items.items():
-            if info[0] and not info[1]:
-                sqlStatements += [[self.INSERT_STATEMENT, {"relative_path": filesData[fileHash], "content_hash": fileHash}]]
-                addedItems += 1
-
             if not info[0] and info[1]:
                 sqlStatements += [[self.DELETE_STATEMENT, {"content_hash": fileHash}]]
                 removedItems += 1
@@ -146,6 +140,10 @@ class Controller:
                 if filesData[fileHash] != databaseHashes[fileHash]:
                     sqlStatements += [[self.UPDATE_PATH_STATEMENT, {"relative_path": filesData[fileHash], "content_hash": fileHash}]]
                     movedItems += 1
+
+            if info[0] and not info[1]:
+                sqlStatements += [[self.INSERT_STATEMENT, {"relative_path": filesData[fileHash], "content_hash": fileHash}]]
+                addedItems += 1
 
         self._executeSql(sqlStatements)
 
@@ -163,9 +161,13 @@ class Controller:
         return 0 if not self.items else reduce((lambda a, b: a + b), list(map(lambda x: x[3], self.items)))
 
     def changeReadState(self, position):
-        if len(self.items) <= 0:
-            return # TODO MAYBE CHECK OTHER WAY IF POSITION IS CORRECT?
-        
-        self.items[position] = (self.items[position][0], self.items[position][1], self.items[position][2], int(not self.items[position][3]))
-        sqlStatement = [[self.UPDATE_READ_STATUS_STATEMENT, {"is_read": self.items[position][3], "id": self.items[position][0]}]]
-        self._executeSql(sqlStatement)
+        if len(self.items) > 0:
+            self.items[position] = (self.items[position][0], self.items[position][1], self.items[position][2], int(not self.items[position][3]))
+            sqlStatement = [[self.UPDATE_READ_STATUS_STATEMENT, {"is_read": self.items[position][3], "id": self.items[position][0]}]]
+            self._executeSql(sqlStatement)
+
+    def processExtensionsFilter(self, extensions):
+        for extension in extensions.split(','):
+            ext = extension.strip()
+            if ext:
+                self.extensions.append(ext)

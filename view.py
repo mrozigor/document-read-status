@@ -1,7 +1,7 @@
 import curses, curses.panel, curses.ascii
 
 class View:
-    STATUS_BAR = " e(x)it | (c)hange library path | (r)eload | (SPC) read/unread | Read items: {}/{}"
+    STATUS_BAR = " e(x)it | (c)hange library path | change (e)xtensions filter | (r)eload | (SPC) read/unread | Read items: {}/{}"
     ITEMS_LIST_HEADER = " Number | Is read? | Path"
 
     def __init__(self, screen):
@@ -139,6 +139,26 @@ class View:
         curses.panel.update_panels()
         self.screen.refresh()
 
+    def showLibraryPathIsNotDirectoryDialog(self):
+        window = curses.newwin(7, 37, int(self.height - 0.5 * self.height - 4), int(self.width / 2 - 17))
+        window.attron(curses.color_pair(2))
+        window.box()
+        window.addstr(1, 1, "".ljust(35, " "))
+        window.addstr(2, 1, "".ljust(35, " "))
+        window.addstr(3, 1, "    Given path is not directory    ")
+        window.addstr(4, 1, "".ljust(35, " "))
+        window.addstr(5, 1, "".ljust(35, " "))
+        window.attroff(curses.color_pair(2))
+        self.windows[1] = window
+        self.panels[1].replace(window)
+        self.panels[1].top()
+        self.panels[1].show()
+        curses.panel.update_panels()
+        self.screen.refresh()
+        while self.getPressedCharacter() != 10:
+            continue
+        self.panels[1].hide()
+
     def hideReloadLibraryDialog(self):
         self.panels[1].hide()
 
@@ -211,3 +231,38 @@ class View:
 
     def getPosition(self):
         return self.position
+
+    def showExtensionsDialog(self):
+        selectedExtensions = ""
+        window = curses.newwin(3, 80, int(self.height - 0.5 * self.height - 4), int(self.width / 2 - 40))
+        window.attron(curses.color_pair(2))
+        window.box()
+        window.addstr(1, 1, "Extenstions filter (comma separated): ".ljust(78, " "))
+        window.attroff(curses.color_pair(2))
+        self.windows[3] = window
+        self.panels[3].replace(window)
+        self.panels[3].top()
+        self.panels[3].show()
+        curses.panel.update_panels()
+        self.screen.refresh()
+        characterPressed = 0
+
+        while characterPressed != 10:
+            characterPressed = self.getPressedCharacter()
+            if characterPressed == curses.KEY_BACKSPACE:
+                selectedExtensions = selectedExtensions[:-1]
+            else:
+                try:
+                    selectedExtensions += chr(characterPressed)
+                except ValueError:
+                    pass
+
+            self.windows[3].attron(curses.color_pair(2))
+            self.windows[3].addstr(1, 1, "Extenstions filter (comma separated): " + selectedExtensions.ljust(int(80 - 2 - 38), " "))
+            self.windows[3].attroff(curses.color_pair(2))
+            curses.panel.update_panels() # TODO IS THIS REALLY NECESSARY?
+            self.screen.refresh()
+
+        self.panels[3].hide()
+        
+        return selectedExtensions
