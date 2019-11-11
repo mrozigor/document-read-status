@@ -31,9 +31,8 @@ def main(screen):
         elif characterPressed == ord(' '):
             controller.changeReadState(view.getPosition())
         elif characterPressed == ord('e'):
-            selectedExtensions = view.showExtensionsDialog()
-            controller.processExtensionsFilter()
-            #TODO
+            selectedExtensions = view.showExtensionsDialog(controller.getExtensions())
+            controller.processExtensionsFilter(selectedExtensions)
 
         view.drawScreen(controller.getItems(), controller.getReadItems())
 
@@ -51,3 +50,6 @@ if __name__ == "__main__":
 #TODO ADD POSSIBILITY FOR USER TO CHANGE FILES EXTENSION FILTER
 #TODO ADD HANDLER FOR SITUATION WHERE THERE IS NO ITEMS IN DIRECTORY
 #TODO ADD HANDLING FOR TWO FILES WITH SAME CONTENT AND DIFFERENT TITLES
+#TODO ADD SEARCH FUNCTION
+#TODO MOVE CALCULATING HASHES TO THREADS
+#TODO REDRAW WHOLE SCREEN ONLY WHEN SIZE CHANGED

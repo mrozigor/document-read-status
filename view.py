@@ -232,12 +232,12 @@ class View:
     def getPosition(self):
         return self.position
 
-    def showExtensionsDialog(self):
-        selectedExtensions = ""
+    def showExtensionsDialog(self, extensions):
+        selectedExtensions = ",".join(extensions)
         window = curses.newwin(3, 80, int(self.height - 0.5 * self.height - 4), int(self.width / 2 - 40))
         window.attron(curses.color_pair(2))
         window.box()
-        window.addstr(1, 1, "Extenstions filter (comma separated): ".ljust(78, " "))
+        window.addstr(1, 1, ("Extenstions filter (comma separated): " + selectedExtensions).ljust(78, " "))
         window.attroff(curses.color_pair(2))
         self.windows[3] = window
         self.panels[3].replace(window)
