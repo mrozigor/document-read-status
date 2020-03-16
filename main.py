@@ -3,22 +3,23 @@
 import curses
 from view import View
 from controller import Controller
+from consts import KeyConsts
 
 def main(screen):
     view = View(screen)
     controller = Controller()
     characterPressed = 0
 
-    while characterPressed != ord('x'):
-        if (characterPressed == curses.KEY_DOWN) and (controller.getNumberOfItems() != 0):
+    while characterPressed != KeyConsts.EXIT:
+        if (characterPressed == KeyConsts.DOWN) and not controller.listEmpty():
             view.moveDown(controller.getNumberOfItems())
-        elif (characterPressed == curses.KEY_UP) and (controller.getNumberOfItems() != 0):
+        elif (characterPressed == KeyConsts.UP) and not controller.listEmpty():
             view.moveUp(controller.getNumberOfItems())
-        elif (characterPressed == curses.KEY_RIGHT) and (controller.getNumberOfItems() != 0):
+        elif (characterPressed == KeyConsts.RIGHT) and not controller.listEmpty():
             view.moveScreenDown(controller.getNumberOfItems())
-        elif (characterPressed == curses.KEY_LEFT) and (controller.getNumberOfItems() != 0):
+        elif (characterPressed == KeyConsts.LEFT) and not controller.listEmpty():
             view.moveScreenUp()
-        elif characterPressed == ord('r'):
+        elif characterPressed == KeyConsts.RELOAD_DATABASE:
             if controller.isDirectory(view.getLibraryPath()):
                 view.showReloadLibraryDialog()
                 [items, addedItems, removedItems, movedItems] = controller.loadItems(view.getLibraryPath())
@@ -26,11 +27,11 @@ def main(screen):
                 view.showReloadSummaryDialog(addedItems, removedItems, movedItems)
             else:
                 view.showLibraryPathIsNotDirectoryDialog()
-        elif characterPressed == ord('c'):
+        elif characterPressed == KeyConsts.SELECT_LIBRARY_PATH:
             view.showLibrarySelectionDialog()
-        elif characterPressed == ord(' '):
+        elif characterPressed == KeyConsts.CHANGE_READ_STATE:
             controller.changeReadState(view.getPosition())
-        elif characterPressed == ord('e'):
+        elif characterPressed == KeyConsts.APPLY_EXTENSION_FILTER:
             selectedExtensions = view.showExtensionsDialog(controller.getExtensions())
             controller.processExtensionsFilter(selectedExtensions)
 
@@ -41,15 +42,13 @@ def main(screen):
 if __name__ == "__main__":
     curses.wrapper(main)
 
-#TODO REFACTOR CODE
 #TODO HANDLE BETTER SCREEN SIZES (ALSO DIALOGS)
 #TODO ADD INFO ABOUT INSUFFICIENT HEIGHT/WIDTH IF IT IS THE CASE
 #TODO BASED ON ABOVE CALCULATE DIALOGS AT THE BEGINNING
 #TODO ABSTRACT DIALOGS INTO NEW CLASS
 #TODO IF TEXT DOESN'T FIT INTO DIALOG THEN SCROLL IT (ALSO STATUS BAR ETC.)
-#TODO ADD POSSIBILITY FOR USER TO CHANGE FILES EXTENSION FILTER
 #TODO ADD HANDLER FOR SITUATION WHERE THERE IS NO ITEMS IN DIRECTORY
 #TODO ADD HANDLING FOR TWO FILES WITH SAME CONTENT AND DIFFERENT TITLES
 #TODO ADD SEARCH FUNCTION
-#TODO MOVE CALCULATING HASHES TO THREADS
 #TODO REDRAW WHOLE SCREEN ONLY WHEN SIZE CHANGED
+#TODO FIX NUMBERS COLUMN WHEN FILTERING IS ON

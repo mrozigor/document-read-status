@@ -2,6 +2,7 @@ import os, os.path
 import sqlite3
 import hashlib
 from functools import reduce
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class Controller:
     DATABASE_FILE_NAME = "database.db"
@@ -17,6 +18,8 @@ class Controller:
     CREATE_CONFIG_ENTRIES_STATEMENT = "INSERT INTO config VALUES ('extensions', '')"
     SELECT_CONFIG_EXTENSIONS_STATEMENT = "SELECT value FROM config WHERE key='extensions'"
     UPDATE_CONFIG_EXTENSIONS_STATEMENT = "UPDATE config SET value=:extensions WHERE key='extensions'"
+
+    HASH_BUFFER_SIZE = 10 * 2**20 # 10MB
 
     def __init__(self):
         self.items = []
@@ -84,38 +87,47 @@ class Controller:
         return result
 
     def _listFiles(self, path):
-        HASH_BUFFER_SIZE = 10 * 2**20 # 10MB
         filesList = dict()
         duplicatedFiles = [] # TODO MAKE LIST OF DUPLICATES AND SHOW IT
+        tasks = []
 
-        for path2, subdirs, files in os.walk(path):
-            for name in files:
-                add = False
+        with ThreadPoolExecutor(max_workers = 50) as executor:
+            for path2, subdirs, files in os.walk(path):
+                for name in files:
+                    add = False
 
-                if name == self.DATABASE_FILE_NAME:
-                    continue
+                    if name == self.DATABASE_FILE_NAME:
+                        continue
 
-                if len(self.extensions) == 0:
-                    add = True
-                else:
-                    for extension in self.extensions:
-                        if name.lower().endswith("." + extension):
-                            add = True
-                            break
-
-                if add:
-                    filePath = os.path.join(path2, name)
-                    with open(filePath, 'rb') as file:
-                        hash = hashlib.sha1()
-                        while True:
-                            data = file.read(HASH_BUFFER_SIZE)
-                            if not data:
+                    if len(self.extensions) == 0:
+                        add = True
+                    else:
+                        for extension in self.extensions:
+                            if name.lower().endswith("." + extension):
+                                add = True
                                 break
-                            hash.update(data)
-                        # TODO CHECK FOR DUPLICATES WITH FILE ON DISK AND RETURN INFO ABOUT THEM AND DON'T LOAD THEM
-                        filesList[hash.hexdigest()] = filePath.replace(path, "")
+
+                    if add:
+                        filePath = os.path.join(path2, name)
+                        tasks.append(executor.submit(self._calculateHash, filePath, path))
+
+            for task in as_completed(tasks):
+                # TODO CHECK FOR DUPLICATES WITH FILE ON DISK AND RETURN INFO ABOUT THEM AND DON'T LOAD THEM
+                result = task.result()
+                filesList[result[0]] = result[1]
 
         return filesList, duplicatedFiles
+
+    def _calculateHash(self, filePath, libraryPath):
+        with open(filePath, 'rb') as file:
+            hash = hashlib.sha1()
+            while True:
+                data = file.read(self.HASH_BUFFER_SIZE)
+                if not data:
+                    break
+                hash.update(data)
+
+            return [hash.hexdigest(), filePath.replace(libraryPath, "")]
 
     def _executeSql(self, sqlStatements):
         result = True
@@ -187,6 +199,9 @@ class Controller:
 
     def getNumberOfItems(self):
         return len(self.items)
+
+    def listEmpty(self):
+        return len(self.items) == 0
 
     def getItems(self):
         return self.items

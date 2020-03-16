@@ -1,4 +1,5 @@
 import curses, curses.panel, curses.ascii
+from consts import KeyConsts
 
 class View:
     STATUS_BAR = " e(x)it | (c)hange library path | change (e)xtensions filter | (r)eload | (SPC) read/unread | Read items: {}/{}"
@@ -101,8 +102,8 @@ class View:
 
         characterPressed = -1
 
-        while characterPressed != 10:
-            if characterPressed == curses.KEY_BACKSPACE:
+        while characterPressed != KeyConsts.ENTER:
+            if characterPressed == KeyConsts.BACKSPACE:
                 self.libraryPath = self.libraryPath[:-1]
             else:
                 try:
@@ -155,7 +156,7 @@ class View:
         self.panels[1].show()
         curses.panel.update_panels()
         self.screen.refresh()
-        while self.getPressedCharacter() != 10:
+        while self.getPressedCharacter() != KeyConsts.ENTER:
             continue
         self.panels[1].hide()
 
@@ -181,7 +182,7 @@ class View:
         curses.panel.update_panels()
         self.screen.refresh()
 
-        while self.getPressedCharacter() != 10:
+        while self.getPressedCharacter() != KeyConsts.ENTER:
             continue
 
         self.panels[2].hide()
@@ -247,9 +248,9 @@ class View:
         self.screen.refresh()
         characterPressed = 0
 
-        while characterPressed != 10:
+        while characterPressed != KeyConsts.ENTER:
             characterPressed = self.getPressedCharacter()
-            if characterPressed == curses.KEY_BACKSPACE:
+            if characterPressed == KeyConsts.BACKSPACE:
                 selectedExtensions = selectedExtensions[:-1]
             else:
                 try:
