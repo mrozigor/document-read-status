@@ -195,7 +195,16 @@ class Controller:
 
         self.items = self._loadItemsFromDatabase(self.databasePath)
 
-        return self.items, addedItems, removedItems, movedItems
+        return addedItems, removedItems, movedItems
+
+    def loadItemsFromDatabase(self, libraryPath):
+        if not self._pathEndsWithSlash(libraryPath):
+            libraryPath = libraryPath + "/"
+
+        self.databasePath = libraryPath + self.DATABASE_FILE_NAME
+
+        if self._checkIfDatabaseExists(self.databasePath):
+            self.items = self._loadItemsFromDatabase(self.databasePath)
 
     def getNumberOfItems(self):
         return len(self.items)

@@ -22,13 +22,17 @@ def main(screen):
         elif characterPressed == KeyConsts.RELOAD_DATABASE:
             if controller.isDirectory(view.getLibraryPath()):
                 view.showReloadLibraryDialog()
-                [items, addedItems, removedItems, movedItems] = controller.loadItems(view.getLibraryPath())
+                [addedItems, removedItems, movedItems] = controller.loadItems(view.getLibraryPath())
                 view.hideReloadLibraryDialog()
                 view.showReloadSummaryDialog(addedItems, removedItems, movedItems)
             else:
                 view.showLibraryPathIsNotDirectoryDialog()
         elif characterPressed == KeyConsts.SELECT_LIBRARY_PATH:
             view.showLibrarySelectionDialog()
+            if controller.isDirectory(view.getLibraryPath()):
+                controller.loadItemsFromDatabase(view.getLibraryPath())
+            else:
+                view.showLibraryPathIsNotDirectoryDialog()
         elif characterPressed == KeyConsts.CHANGE_READ_STATE:
             controller.changeReadState(view.getPosition())
         elif characterPressed == KeyConsts.APPLY_EXTENSION_FILTER:
@@ -52,3 +56,4 @@ if __name__ == "__main__":
 #TODO ADD SEARCH FUNCTION
 #TODO REDRAW WHOLE SCREEN ONLY WHEN SIZE CHANGED
 #TODO FIX NUMBERS COLUMN WHEN FILTERING IS ON
+#TODO FILTERS ONLY SHOW GIVEN EXTENSION FILES FROM DB (BUT ALL FILES ARE SAVED IN DB)
