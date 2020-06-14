@@ -12,7 +12,7 @@ class Controller:
     INSERT_DOCUMENT_STATEMENT = "INSERT INTO documents (relative_path, content_hash, is_read) VALUES (:relative_path, :content_hash, 0)"
     DELETE_DOCUMENT_STATEMENT = "DELETE FROM documents WHERE content_hash=:content_hash"
     UPDATE_DOCUMENT_PATH_STATEMENT = "UPDATE documents SET relative_path=:relative_path WHERE content_hash=:content_hash"
-    UPDATE_DOCUMENT_READ_STATUS_STATEMENT = "UPDATE documents SET is_read=:is_read WHERE id=:id"
+    UPDATE_DOCUMENT_READ_STATUS_STATEMENT = "UPDATE documents SET is_read=:is_read WHERE content_hash=:content_hash"
 
     CREATE_CONFIG_TABLE_STATEMENT = "CREATE TABLE IF NOT EXISTS config (key text PRIMARY KEY, value text)"
     CREATE_CONFIG_ENTRIES_STATEMENT = "INSERT INTO config VALUES ('extensions', '')"
@@ -53,7 +53,10 @@ class Controller:
             connection = sqlite3.connect(databasePath)
             cursor = connection.cursor()
             cursor.execute(self.SELECT_ALL_DOCUMENTS_STATEMENT)
-            results = cursor.fetchall()
+            columns = [column[0] for column in cursor.description]
+            results = []
+            for row in cursor.fetchall():
+                results.append(dict(zip(columns, row)))
         finally:
             connection.close()
 
@@ -66,9 +69,11 @@ class Controller:
             connection = sqlite3.connect(self.databasePath)
             cursor = connection.cursor()
             cursor.execute(self.SELECT_CONFIG_EXTENSIONS_STATEMENT)
-            for ext in cursor.fetchone()[0].split(","):
-                if ext:
-                    results.append(ext)
+            result = cursor.fetchone()
+            if result:
+                for ext in result[0].split(","):
+                    if ext:
+                        results.append(ext)
         finally:
             connection.close()
 
@@ -168,10 +173,10 @@ class Controller:
             items[fileHash] = [True, False]
 
         for databaseItem in databaseItems:
-            data = items.get(databaseItem[2], [False, True])
+            data = items.get(databaseItem['content_hash'], [False, True])
             data[1] = True
-            items[databaseItem[2]] = data
-            databaseHashes[databaseItem[2]] = databaseItem[1]
+            items[databaseItem['content_hash']] = data
+            databaseHashes[databaseItem['content_hash']] = databaseItem['relative_path']
 
         addedItems = 0
         removedItems = 0
@@ -216,12 +221,12 @@ class Controller:
         return self.items
 
     def getReadItems(self):
-        return 0 if not self.items else reduce((lambda a, b: a + b), list(map(lambda x: x[3], self.items)))
+        return 0 if not self.items else reduce((lambda a, b: a + b), list(map(lambda x: x['is_read'], self.items)))
 
     def changeReadState(self, position):
         if len(self.items) > 0:
-            self.items[position] = (self.items[position][0], self.items[position][1], self.items[position][2], int(not self.items[position][3]))
-            sqlStatement = [[self.UPDATE_DOCUMENT_READ_STATUS_STATEMENT, {"is_read": self.items[position][3], "id": self.items[position][0]}]]
+            self.items[position]['is_read'] = int(not self.items[position]['is_read'])#(self.items[position][0], self.items[position][1], self.items[position][2], int(not self.items[position]['is_read']))
+            sqlStatement = [[self.UPDATE_DOCUMENT_READ_STATUS_STATEMENT, {"is_read": self.items[position]['is_read'], "content_hash": self.items[position]['content_hash']}]]
             self._executeSql(sqlStatement)
 
     def processExtensionsFilter(self, extensions):

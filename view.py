@@ -50,7 +50,7 @@ class View:
         for item in items:
             if item == selectedItem:
                 self.screen.attron(curses.color_pair(1))
-            self.screen.addstr(index, 0, "{:^8}|{:^10}| {}".format(self.startListPosition + index, ("*" if item[3] == 1 else ""), item[1]))
+            self.screen.addstr(index, 0, "{:^8}|{:^10}| {}".format(self.startListPosition + index, ("*" if item['is_read'] == 1 else ""), item['relative_path']).ljust(self.width))
             if item == selectedItem:
                 self.screen.attroff(curses.color_pair(1))
             index = index + 1
@@ -71,11 +71,15 @@ class View:
             if self.endListPosition >= len(items):
                 self.endListPosition = len(items) - 1
                 self.startListPosition = self.endListPosition - (self.height - 3)
+            if self.startListPosition < 0:
+                self.startListPosition = 0
+            if self.position < 0 or self.position >= len(items):
+                self.position = 0
         
         # Items list
         self.screen.attron(curses.color_pair(1))
         self.screen.addstr(0, 0, self.ITEMS_LIST_HEADER)
-        self.screen.addstr(0, len(self.ITEMS_LIST_HEADER), " " * (self.width - len(self.ITEMS_LIST_HEADER) - 1))
+        self.screen.addstr(0, len(self.ITEMS_LIST_HEADER), " " * (self.width - len(self.ITEMS_LIST_HEADER)))# - 1))
         self.screen.attroff(curses.color_pair(1))
         if len(items) > 0:
             self._drawItems(items[self.startListPosition:(self.endListPosition + 1)], items[self.position])
@@ -84,7 +88,8 @@ class View:
         statusBar = self.STATUS_BAR.format(readItems, len(items))
         self.screen.attron(curses.color_pair(1))
         self.screen.addstr(self.height - 1, 0, statusBar)
-        self.screen.addstr(self.height - 1, len(statusBar), ("library: " + self.libraryPath + " ").rjust((self.width - len(statusBar) - 1), " "))
+        self.screen.addstr(self.height - 1, len(statusBar), ("library: " + self.libraryPath).rjust((self.width - len(statusBar) - 1), " "))
+        self.screen.insch(self.height - 1, self.width - 1, " ")
         self.screen.attroff(curses.color_pair(1))
 
         curses.panel.update_panels()
@@ -114,7 +119,7 @@ class View:
             self.windows[0].attron(curses.color_pair(2))
             self.windows[0].addstr(1, 1, "Path to library: " + self.libraryPath.ljust(int(self.width - 0.5 * self.width - 19), " "))
             self.windows[0].attroff(curses.color_pair(2))
-            curses.panel.update_panels() # TODO IS THIS REALLY NECESSARY?
+            curses.panel.update_panels()
             self.screen.refresh()
 
             characterPressed = self.getPressedCharacter()
@@ -261,7 +266,7 @@ class View:
             self.windows[3].attron(curses.color_pair(2))
             self.windows[3].addstr(1, 1, "Extenstions filter (comma separated): " + selectedExtensions.ljust(int(80 - 2 - 38), " "))
             self.windows[3].attroff(curses.color_pair(2))
-            curses.panel.update_panels() # TODO IS THIS REALLY NECESSARY?
+            curses.panel.update_panels()
             self.screen.refresh()
 
         self.panels[3].hide()
